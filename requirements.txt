@@ -1,0 +1,4 @@
+gradio==5.23.3
+python-dotenv==1.1.0
+langchain-ollama==0.3.1
+langchain-openai==0.3.12
