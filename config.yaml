@@ -1,0 +1,129 @@
+# Ollama Guardrail - Configuration File
+# ========================================
+# This file contains all customizable settings for the sensitive information redaction tool.
+# You can modify these settings without changing the code.
+
+# Model Configuration
+models:
+  ollama:
+    name: "llama3.2:latest"           # Ollama model for detection and redaction
+    timeout: 120                       # Timeout in seconds for Ollama API calls
+
+  openai:
+    name: "gpt-3.5-turbo"             # OpenAI model for processing redacted text
+    timeout: 60                        # Timeout in seconds for OpenAI API calls
+    temperature: 0.7                   # Creativity level (0.0 = deterministic, 1.0 = creative)
+    max_tokens: 2000                   # Maximum tokens in response
+
+# Retry Configuration
+retry:
+  max_attempts: 3                      # Maximum retry attempts for failed API calls
+  min_wait: 2                          # Minimum wait time between retries (seconds)
+  max_wait: 10                         # Maximum wait time between retries (seconds)
+  multiplier: 2                        # Exponential backoff multiplier
+
+# Rate Limiting Configuration
+rate_limiting:
+  enabled: true                        # Enable rate limiting for API calls
+  max_requests_per_minute: 60          # Maximum requests per minute
+  max_tokens_per_minute: 90000         # Maximum tokens per minute (OpenAI tier limit)
+
+# Logging Configuration
+logging:
+  level: "INFO"                        # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "app.log"                      # Log file name
+  console: true                        # Enable console logging
+  file_logging: true                   # Enable file logging
+  max_bytes: 10485760                  # Max log file size (10 MB)
+  backup_count: 5                      # Number of backup log files to keep
+
+# Gradio UI Configuration
+ui:
+  title: "Sensitive Information Redaction Tool"
+  description: "Identify and redact sensitive information from text before AI processing"
+  theme: "default"                     # Gradio theme: default, soft, monochrome
+  share: false                         # Enable public sharing via gradio.live link (set to false for security)
+  server:
+    port: 7860                         # Port to run the server on
+    host: "127.0.0.1"                  # Host address (127.0.0.1 for local only, 0.0.0.0 for network access)
+
+  # UI Component Settings
+  components:
+    input_text:
+      lines: 10                        # Number of lines for input text box
+      placeholder: "Enter text to analyze for sensitive information..."
+
+    output_text:
+      lines: 10                        # Number of lines for output text boxes
+
+    category_selection:
+      default_all: false               # Select all categories by default
+
+# Redaction Categories Configuration
+# These are the categories of sensitive information that can be detected and redacted
+categories:
+  enabled:
+    - name: "Email Addresses"
+      placeholder: "[EMAIL-{index}]"
+      description: "Redact email addresses (e.g., user@example.com)"
+
+    - name: "Phone Numbers"
+      placeholder: "[PHONE-NUM-{index}]"
+      description: "Redact phone numbers (e.g., +1-234-567-8900)"
+
+    - name: "Social Security Numbers"
+      placeholder: "[SSN-{index}]"
+      description: "Redact SSNs (e.g., 123-45-6789)"
+
+    - name: "Credit Card Numbers"
+      placeholder: "[CREDIT-CARD-NUM-{index}]"
+      description: "Redact credit card numbers (e.g., 4111-1111-1111-1111)"
+
+    - name: "Dates of Birth"
+      placeholder: "[DOB-{index}]"
+      description: "Redact dates of birth (e.g., 01/15/1990)"
+
+    - name: "Addresses"
+      placeholder: "[ADDRESS-{index}]"
+      description: "Redact physical addresses"
+
+    - name: "Passwords"
+      placeholder: "[PASSWORD-{index}]"
+      description: "Redact passwords and credentials"
+
+    - name: "Confidential Business Information"
+      placeholder: "[CBI-{index}]"
+      description: "Redact confidential business data"
+
+    - name: "Medical Information"
+      placeholder: "[MEDICAL-{index}]"
+      description: "Redact medical records and health information (HIPAA)"
+
+    - name: "Other Sensitive Information"
+      placeholder: "[OTHER-{index}]"
+      description: "Redact other unspecified sensitive data"
+
+# OpenAI Processing Configuration
+openai_processing:
+  instruction_prefix: "The following text has been redacted for sensitive information. Please process the text as it is provided as a PROMPT:\n"
+  enable_automatic_submit: false       # Automatically submit to OpenAI after redaction
+
+# Performance & Optimization
+performance:
+  cache_enabled: false                 # Enable response caching (future feature)
+  cache_ttl: 3600                      # Cache time-to-live in seconds
+  parallel_processing: false           # Enable parallel processing for batch operations (future feature)
+
+# Security Configuration
+security:
+  validate_api_key_on_startup: true    # Verify OpenAI API key is valid on startup
+  sanitize_error_messages: true        # Remove sensitive details from error messages shown to users
+  log_sensitive_data: false            # Log detected sensitive information (WARNING: disable for production)
+
+# Feature Flags
+features:
+  batch_processing: false              # Enable batch document processing (future feature)
+  custom_rules: false                  # Enable custom redaction rules (future feature)
+  export_results: true                 # Enable exporting results to file
+  api_mode: false                      # Enable REST API mode (future feature)

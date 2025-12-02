@@ -2,3 +2,6 @@ gradio==5.23.3
 python-dotenv==1.1.0
 langchain-ollama==0.3.1
 langchain-openai==0.3.12
+pyyaml==6.0.2
+tenacity==9.0.0
+ratelimit==2.2.1
