@@ -206,7 +206,6 @@ ollama_guardrail/
 ├── pytest.ini                  # Pytest configuration
 ├── .env.example                # Example environment variables
 ├── .gitignore                  # Git ignore rules (enhanced)
-├── SECURITY_NOTICE.md          # Security guidelines and API key rotation
 │
 ├── utils/                      # Utility modules (656 lines)
 │   ├── __init__.py            # Module exports
@@ -312,13 +311,12 @@ The application follows a clean, modular architecture:
 - ✅ **Audit Logging**: Configurable logging levels (sensitive data logging disabled by default)
 - ✅ **Rate Limiting**: Prevents API quota exhaustion and abuse
 
-### Important Security Notes
+### Best Practices
 
-⚠️ **CRITICAL**: If you have committed your `.env` file to git:
-1. Read `SECURITY_NOTICE.md` immediately
-2. Rotate your OpenAI API key within 1 hour
-3. Remove `.env` from git history using `git filter-repo`
-4. Check OpenAI billing for unauthorized usage
+✅ **Environment Variables**: Always use `.env` for sensitive configuration
+✅ **Never Commit Secrets**: Ensure `.env` is in `.gitignore` before committing
+✅ **API Key Rotation**: Periodically rotate API keys and monitor usage
+✅ **Usage Monitoring**: Regularly check your OpenAI billing dashboard
 
 ### Privacy Considerations
 
