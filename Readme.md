@@ -1,10 +1,8 @@
 # Sensitive Information Redaction Tool
 
-A production-ready, privacy-focused application that automatically identifies and redacts sensitive information from text before processing it with AI models. This tool helps protect personally identifiable information (PII) and other sensitive data when working with AI systems.
+A privacy-focused application that automatically identifies and redacts sensitive information from text before processing it with AI models. This tool helps protect personally identifiable information (PII) and other sensitive data when working with AI systems.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Grade: A-](https://img.shields.io/badge/Grade-A--/green)](https://github.com/shrimpy8/ollama_guardrail)
-[![Tests](https://img.shields.io/badge/tests-350%2B-brightgreen)](tests/)
 
 ## ✨ Features
 
@@ -22,7 +20,7 @@ A production-ready, privacy-focused application that automatically identifies an
 - **Error Handling**: Sanitized error messages to prevent information leakage
 - **Type Safety**: Full type hints throughout codebase
 - **Modular Architecture**: Separate modules for config, retry, rate limiting, and redaction
-- **Unit Tested**: 350+ comprehensive unit tests with 70%+ coverage
+- **Unit Tested**: Comprehensive unit tests with 70%+ coverage
 
 ## 📋 Categories of Sensitive Information
 
@@ -62,8 +60,11 @@ Follow the [official Ollama installation guide](https://ollama.ai/download) for 
 
 ### 3. Pull the Required Model
 ```bash
-ollama pull llama3.2:latest
+ollama pull llama3.1:8b
 ```
+
+Note: In local testing, `llama3.1:8b` produced reliable JSON output.
+If you use `llama3.1:8b`, update `config.yaml` accordingly.
 
 ### 4. Install Python Dependencies
 ```bash
@@ -78,6 +79,9 @@ pip install -r requirements-dev.txt
 ```bash
 # Copy the example environment file
 cp .env.example .env
+
+# Or use a local-only env file
+cp .env.local.example .env.local
 
 # Edit .env and add your OpenAI API key (optional)
 # OPENAI_API_KEY=sk-your-api-key-here
@@ -95,6 +99,18 @@ python app.py
 
 The application will start on `http://127.0.0.1:7860` by default.
 
+If you are using a virtual environment:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+### Setup Guide
+
+See `docs/setup.md` for a concise setup walkthrough.
+
 ### Using the Web Interface
 
 #### 1. Redaction Tool Tab
@@ -104,12 +120,15 @@ The application will start on `http://127.0.0.1:7860` by default.
 - **Review Output**:
   - **JSON Output**: Detailed information about detected sensitive data
   - **Redacted Text**: Your original text with sensitive information replaced by placeholders
-- **Submit to OpenAI** (optional): Process the redacted text with OpenAI
+- **Submit to OpenAI** (optional): Process the redacted text with OpenAI (only visible when an API key is set)
 
 #### 2. OpenAI Config Tab
 - Enter your OpenAI API key
 - Click "Update API Key" to save the key
 - The key is stored in your local `.env` file
+- Clearing the key hides OpenAI controls in the main tab
+- If `.env` is empty, you can set a session-only key by unchecking “Save key to .env”
+ - If `.env` already has a key, the UI will show that it was loaded from `.env`
 
 #### 3. Help & About Tab
 - View documentation, features, and troubleshooting tips
@@ -125,7 +144,7 @@ All application settings are managed through `config.yaml`. This allows you to c
 ```yaml
 models:
   ollama:
-    name: "llama3.2:latest"
+    name: "llama3.1:8b"
     timeout: 120
   openai:
     name: "gpt-3.5-turbo"
@@ -183,6 +202,13 @@ security:
   log_sensitive_data: false  # WARNING: disable for production
 ```
 
+#### Prompt Template Configuration
+```yaml
+prompts:
+  redaction_template: "prompts/redaction_v1.txt"
+  version: "v1"
+```
+
 #### Feature Flags
 ```yaml
 features:
@@ -192,6 +218,8 @@ features:
   api_mode: false
 ```
 
+Note: feature flags are planned capabilities unless explicitly documented as implemented.
+
 See `config.yaml` for the complete configuration file with all available options.
 
 ## 🏗️ Project Structure
@@ -200,6 +228,8 @@ See `config.yaml` for the complete configuration file with all available options
 ollama_guardrail/
 ├── app.py                      # Main application entry point (420 lines)
 ├── prompt.py                   # Prompt templates for LLM
+├── prompts/                    # External prompt templates
+│   └── redaction_v1.txt         # Redaction prompt template
 ├── config.yaml                 # Configuration file (164 lines)
 ├── requirements.txt            # Production dependencies
 ├── requirements-dev.txt        # Development dependencies
@@ -217,7 +247,7 @@ ollama_guardrail/
 │   ├── __init__.py            # Module exports
 │   └── redactor.py            # SensitiveInformationRedactor class
 │
-└── tests/                      # Unit tests (350+ tests, 1000+ lines)
+└── tests/                      # Unit tests (coverage-focused)
     ├── __init__.py            # Test package
     ├── conftest.py            # Pytest fixtures and configuration
     ├── test_config_loader.py  # Config loader tests (50+ tests)
@@ -248,7 +278,7 @@ pytest -m "not slow"        # Skip slow tests
 
 ### Test Coverage
 
-The project has 350+ comprehensive unit tests covering:
+The project has comprehensive unit tests covering:
 - Configuration management (50+ tests)
 - Retry logic (30+ tests)
 - Rate limiting (40+ tests)
@@ -270,6 +300,22 @@ Target coverage: **70%+** (enforced by pytest)
 ### Modular Design
 
 The application follows a clean, modular architecture:
+
+```
+Input Text
+   │
+   ▼
+LLM Detection (Ollama)
+   │
+   ▼
+Output Validation
+   │
+   ▼
+Deterministic Redaction
+   │
+   ▼
+Redacted Text + JSON
+```
 
 ```
 ┌─────────────────┐
@@ -371,6 +417,23 @@ flake8 .
 mypy .
 ```
 
+### Documentation Conventions
+
+See `docs/CONVENTIONS.md` for the short docstring standard used in this project.
+
+### Project Docs
+
+- `docs/config.md` — Configuration reference
+- `docs/prompts.md` — Prompt versioning and editing guidance
+- `docs/security.md` — Threat model and mitigations
+- `docs/setup.md` — Setup guide
+
+### Screenshots
+
+Place UI screenshots in `screenshots/`. Example:
+
+![UI](screenshots/ui.png)
+
 ### Code Quality Tools
 
 - **Black**: Code formatting
@@ -454,7 +517,7 @@ ollama serve
 ollama list
 
 # Pull the model if needed
-ollama pull llama3.2:latest
+ollama pull llama3.1:8b
 ```
 
 #### Rate Limiting Delays
@@ -500,10 +563,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📈 Project Stats
 
-- **Grade**: A- (Production-Ready)
 - **Lines of Code**: ~2,500
 - **Test Coverage**: 70%+
-- **Unit Tests**: 350+
 - **Modules**: 4 (config, retry, rate limiter, redactor)
 - **Configuration Options**: 40+
 - **Supported Categories**: 10
@@ -511,12 +572,12 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🔄 Version History
 
 ### v1.0.0 (Current)
-- ✅ Production-ready with comprehensive testing
+- ✅ Comprehensive testing
 - ✅ YAML configuration management
 - ✅ Retry logic with exponential backoff
 - ✅ Rate limiting (60 req/min, 90k tokens/min)
 - ✅ Modular architecture (utils/, redactor/)
-- ✅ 350+ unit tests with 70%+ coverage
+- ✅ Extensive unit tests with 70%+ coverage
 - ✅ Type hints throughout
 - ✅ Security enhancements (error sanitization, log rotation)
 

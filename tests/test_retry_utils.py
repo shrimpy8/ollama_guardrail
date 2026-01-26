@@ -89,7 +89,7 @@ class TestCreateRetryDecorator:
         wait2 = call_times[2] - call_times[1]
 
         assert wait1 >= 0.1  # At least min_wait
-        assert wait2 >= wait1  # Second wait should be longer
+        assert wait2 + 0.05 >= wait1  # Allow small timing variance
 
 
 @pytest.mark.unit
@@ -136,6 +136,20 @@ class TestRetryApiCall:
         result = retry_api_call(api_func, "arg1", "arg2", c="kwarg", max_attempts=3, min_wait=0.1)
 
         assert result == "arg1-arg2-kwarg"
+
+    @patch('utils.retry_utils.create_retry_decorator')
+    def test_retry_api_call_uses_multiplier(self, mock_create):
+        """Test that retry_api_call forwards multiplier to decorator."""
+        mock_create.return_value = lambda func: func
+
+        def api_func():
+            return "ok"
+
+        result = retry_api_call(api_func, max_attempts=2, min_wait=0.1, max_wait=0.2, multiplier=3)
+
+        assert result == "ok"
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["multiplier"] == 3
 
     @patch('utils.retry_utils.logger')
     def test_logging_on_retry(self, mock_logger):

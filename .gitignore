@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+!.env.example
+!.env.local.example
 
 # Virtual Environments
 .venv
@@ -70,8 +72,12 @@ Thumbs.db
 # Logs
 *.log
 app.log
+app.log
 logs/
 *.log.*
+
+# Local analysis docs
+GAP_ANALYSIS.md
 
 # Gradio Specific
 .gradio/

@@ -16,12 +16,14 @@ Author: Harsh
 import os
 import json
 import logging
-from typing import List, Dict, Tuple, Optional
+import re
+import inspect
+from typing import List, Dict, Tuple, Optional, Any
 
 from langchain_ollama.llms import OllamaLLM
 from langchain_openai import ChatOpenAI
 
-from utils import retry_api_call, rate_limited, load_config
+from utils import retry_api_call, load_config, get_global_rate_limiter
 import prompt
 
 logger = logging.getLogger(__name__)
@@ -79,8 +81,15 @@ class SensitiveInformationRedactor:
             openai_api_key = os.getenv("OPENAI_API_KEY", "")
 
         try:
-            # Initialize Ollama model
-            self.ollama_model = OllamaLLM(model=ollama_model_name)
+            # Initialize Ollama model (request JSON format when supported)
+            ollama_kwargs = {"model": ollama_model_name}
+            try:
+                if "format" in inspect.signature(OllamaLLM).parameters:
+                    ollama_kwargs["format"] = "json"
+            except (ValueError, TypeError):
+                pass
+
+            self.ollama_model = OllamaLLM(**ollama_kwargs)
             logger.info(f"Initialized Ollama model: {ollama_model_name}")
 
             # Initialize OpenAI model if API key is available
@@ -101,7 +110,6 @@ class SensitiveInformationRedactor:
             logger.error(f"Error initializing models: {str(e)}")
             raise
 
-    @rate_limited(max_calls=60, period=60)
     def identify_sensitive_information(
         self,
         text: str,
@@ -136,6 +144,9 @@ class SensitiveInformationRedactor:
         if category_map is None:
             category_map = config.get_category_map()
 
+        # Track injection patterns without changing behavior
+        injection_warnings = self._detect_prompt_injection(text)
+
         # Input validation
         if not text:
             logger.warning("Empty text provided for sensitive information detection")
@@ -146,12 +157,12 @@ class SensitiveInformationRedactor:
             return {"error": "No categories selected"}, text
 
         try:
-            # Get formatting for selected categories
-            selected_formats = [category_map[cat] for cat in categories if cat in category_map]
-            categories_str = "\n".join(selected_formats)
+            # Build category prompt with names, placeholders, and descriptions
+            categories_str, placeholder_templates = self._build_category_prompt(categories, category_map)
 
             # Format the prompt template with user text and selected categories
-            formatted_prompt = prompt.template.format(
+            template = prompt.get_template(config.get_prompt_template_path())
+            formatted_prompt = template.format(
                 category_selected=categories_str,
                 user_prompt=text
             )
@@ -161,12 +172,14 @@ class SensitiveInformationRedactor:
 
             # Call the Ollama model with retry logic
             retry_config = config.get_retry_config()
+            self._apply_rate_limit(prompt_text=formatted_prompt)
             output = retry_api_call(
                 self.ollama_model.invoke,
                 formatted_prompt,
                 max_attempts=retry_config['max_attempts'],
                 min_wait=retry_config['min_wait'],
-                max_wait=retry_config['max_wait']
+                max_wait=retry_config['max_wait'],
+                multiplier=retry_config.get('multiplier', 2)
             )
 
             logger.debug(f"Raw Ollama output: {output[:200]}...")  # Log first 200 chars
@@ -174,8 +187,15 @@ class SensitiveInformationRedactor:
             # Parse JSON output from the model
             try:
                 parsed_output = json.loads(output)
+                parsed_output = self._normalize_output_schema(parsed_output, injection_warnings)
+                if not self._validate_output_schema(parsed_output):
+                    logger.error("Model output failed schema validation")
+                    if config.should_sanitize_error_messages():
+                        return {"error": "Invalid model output schema."}, ""
+                    return {"error": "Invalid model output schema.", "raw_output": parsed_output}, ""
                 redacted_text = parsed_output.get("redacted_text", "")
-                detected_count = len(parsed_output.get('detected_sensitive_data', []))
+                detected_items = parsed_output.get('detected_sensitive_data', [])
+                detected_count = len(detected_items)
 
                 logger.info(f"Successfully parsed model output, detected {detected_count} sensitive items")
 
@@ -183,11 +203,52 @@ class SensitiveInformationRedactor:
                 if config.should_log_sensitive_data():
                     logger.debug(f"Detected sensitive data: {parsed_output.get('detected_sensitive_data', [])}")
 
+                # Deterministic post-processing to ensure stable placeholders
+                deterministic_redacted = self._deterministic_redaction(
+                    text,
+                    detected_items,
+                    placeholder_templates
+                )
+                if deterministic_redacted is not None:
+                    parsed_output["redacted_text"] = deterministic_redacted
+                    redacted_text = deterministic_redacted
+
                 return parsed_output, redacted_text
 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse model output as JSON: {str(e)}")
-                logger.debug(f"Raw output: {output}")
+                if config.should_log_sensitive_data():
+                    logger.debug(f"Raw output: {output}")
+
+                extracted = self._extract_json_from_output(output)
+                if extracted is not None:
+                    logger.info("Recovered JSON object from non-JSON model output")
+                    parsed_output = self._normalize_output_schema(extracted, injection_warnings)
+                    if not self._validate_output_schema(parsed_output):
+                        logger.error("Model output failed schema validation")
+                        if config.should_sanitize_error_messages():
+                            return {"error": "Invalid model output schema."}, ""
+                        return {"error": "Invalid model output schema.", "raw_output": parsed_output}, ""
+
+                    redacted_text = parsed_output.get("redacted_text", "")
+                    detected_items = parsed_output.get('detected_sensitive_data', [])
+                    detected_count = len(detected_items)
+
+                    logger.info(f"Successfully parsed model output, detected {detected_count} sensitive items")
+
+                    if config.should_log_sensitive_data():
+                        logger.debug(f"Detected sensitive data: {parsed_output.get('detected_sensitive_data', [])}")
+
+                    deterministic_redacted = self._deterministic_redaction(
+                        text,
+                        detected_items,
+                        placeholder_templates
+                    )
+                    if deterministic_redacted is not None:
+                        parsed_output["redacted_text"] = deterministic_redacted
+                        redacted_text = deterministic_redacted
+
+                    return parsed_output, redacted_text
 
                 error_msg = "Failed to parse output as JSON. The model may not have produced valid JSON format."
                 if config.should_sanitize_error_messages():
@@ -206,7 +267,6 @@ class SensitiveInformationRedactor:
             else:
                 return {"error": f"{error_msg} Details: {str(e)}"}, ""
 
-    @rate_limited(max_calls=60, period=60)
     def submit_to_openai(self, redacted_text: str) -> str:
         """
         Submit redacted text to OpenAI for processing.
@@ -243,12 +303,14 @@ class SensitiveInformationRedactor:
 
             # Call the OpenAI model with retry logic
             retry_config = config.get_retry_config()
+            self._apply_rate_limit(prompt_text=final_prompt)
             response = retry_api_call(
                 self.openai_model.invoke,
                 final_prompt,
                 max_attempts=retry_config['max_attempts'],
                 min_wait=retry_config['min_wait'],
-                max_wait=retry_config['max_wait']
+                max_wait=retry_config['max_wait'],
+                multiplier=retry_config.get('multiplier', 2)
             )
 
             # Extract content from response
@@ -302,3 +364,258 @@ class SensitiveInformationRedactor:
         except Exception as e:
             logger.error(f"Failed to update OpenAI model: {str(e)}")
             return False
+
+    def _apply_rate_limit(self, prompt_text: str) -> None:
+        """Apply config-driven rate limiting with token accounting.
+
+        No-op if rate limiting is disabled or not initialized.
+
+        Args:
+            prompt_text (str): Prompt used to estimate tokens.
+        """
+        if not config.is_rate_limiting_enabled():
+            return
+
+        try:
+            limiter = get_global_rate_limiter()
+        except RuntimeError:
+            logger.warning("Rate limiter not initialized; skipping rate limiting.")
+            return
+
+        tokens = self._estimate_tokens(prompt_text)
+        limiter.wait_for_allowance(tokens=tokens)
+        limiter.record_request(tokens=tokens)
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count using tiktoken when available, else heuristic.
+
+        Args:
+            text (str): Input text to estimate.
+
+        Returns:
+            int: Estimated token count.
+        """
+        try:
+            import tiktoken  # type: ignore
+            encoding = tiktoken.get_encoding("cl100k_base")
+            return len(encoding.encode(text))
+        except Exception:
+            # Heuristic: ~4 chars/token
+            return max(1, len(text) // 4)
+
+    def _build_category_prompt(
+        self,
+        categories: List[str],
+        category_map: Dict[str, str]
+    ) -> Tuple[str, Dict[str, str]]:
+        """Build category prompt lines and placeholder templates.
+
+        Args:
+            categories (List[str]): Selected category names.
+            category_map (Dict[str, str]): Name -> placeholder map.
+
+        Returns:
+            Tuple[str, Dict[str, str]]: Prompt lines and placeholder templates.
+        """
+        enabled_categories = config.get_redaction_categories()
+        if not isinstance(enabled_categories, list):
+            enabled_categories = []
+        enabled_by_name = {cat.get("name"): cat for cat in enabled_categories}
+
+        placeholder_templates: Dict[str, str] = {}
+        lines: List[str] = []
+        for name in categories:
+            cat = enabled_by_name.get(name)
+            if cat:
+                placeholder = cat.get("placeholder", "")
+                description = cat.get("description", "")
+            else:
+                placeholder = category_map.get(name, "")
+                description = ""
+
+            placeholder_template = self._normalize_placeholder_template(placeholder)
+            placeholder_templates[name] = placeholder_template
+
+            if placeholder_template or description:
+                line = f"- {name} | placeholder: {placeholder_template or placeholder} | {description}".strip()
+            else:
+                line = f"- {name}"
+            lines.append(line)
+
+        return "\n".join(lines), placeholder_templates
+
+    def _normalize_placeholder_template(self, placeholder: str) -> str:
+        """Ensure placeholder contains {index} for deterministic numbering.
+
+        Args:
+            placeholder (str): Placeholder text from config.
+
+        Returns:
+            str: Normalized template with {index} when possible.
+        """
+        if "{index}" in placeholder:
+            return placeholder
+
+        # Try to normalize common patterns like [EMAIL-1] -> [EMAIL-{index}]
+        match = re.search(r"^(.*-)(\d+)(\])$", placeholder)
+        if match:
+            return f"{match.group(1)}{{index}}{match.group(3)}"
+
+        return placeholder
+
+    def _normalize_output_schema(self, parsed_output: Dict[str, Any], warnings: List[str]) -> Dict[str, Any]:
+        """Normalize output schema and attach warnings.
+
+        Args:
+            parsed_output (Dict[str, Any]): Raw parsed model output.
+            warnings (List[str]): Warning messages to attach.
+
+        Returns:
+            Dict[str, Any]: Normalized output.
+        """
+        if "detected_sensitive_data" not in parsed_output or not isinstance(parsed_output["detected_sensitive_data"], list):
+            parsed_output["detected_sensitive_data"] = []
+        if "redacted_text" not in parsed_output or not isinstance(parsed_output["redacted_text"], str):
+            parsed_output["redacted_text"] = ""
+        if warnings:
+            parsed_output.setdefault("warnings", [])
+            parsed_output["warnings"].extend(warnings)
+        return parsed_output
+
+    def _validate_output_schema(self, parsed_output: Dict[str, Any]) -> bool:
+        """Validate minimal output schema for safety.
+
+        Args:
+            parsed_output (Dict[str, Any]): Parsed model output.
+
+        Returns:
+            bool: True if schema is minimally valid.
+        """
+        items = parsed_output.get("detected_sensitive_data", [])
+        if not isinstance(items, list):
+            return False
+        redacted_text = parsed_output.get("redacted_text", "")
+        if not isinstance(redacted_text, str):
+            return False
+        if not items and redacted_text.strip() == "":
+            return False
+        for item in items:
+            if not isinstance(item, dict):
+                return False
+            data = item.get("data") or item.get("value") or item.get("text")
+            category = item.get("category") or item.get("label")
+            if not isinstance(data, str) or not isinstance(category, str):
+                return False
+        return True
+
+    def _detect_prompt_injection(self, text: str) -> List[str]:
+        """Detect common prompt injection patterns for logging/warnings.
+
+        Returns a warning list without changing behavior.
+
+        Args:
+            text (str): User input text.
+
+        Returns:
+            List[str]: Warning messages, if any.
+        """
+        patterns = [
+            r"ignore\s+previous\s+instructions",
+            r"disregard\s+the\s+above",
+            r"system\s+prompt",
+            r"you\s+are\s+now",
+            r"developer\s+message",
+        ]
+        warnings: List[str] = []
+        for pat in patterns:
+            if re.search(pat, text, flags=re.IGNORECASE):
+                warnings.append("Potential prompt injection pattern detected.")
+                break
+        if warnings:
+            logger.warning("Potential prompt injection pattern detected in input.")
+        return warnings
+
+    def _deterministic_redaction(
+        self,
+        original_text: str,
+        detected_items: List[Dict[str, Any]],
+        placeholder_templates: Dict[str, str]
+    ) -> Optional[str]:
+        """Apply deterministic redaction using detected items and templates.
+
+        Returns None if required fields are missing.
+
+        Args:
+            original_text (str): Original user input.
+            detected_items (List[Dict[str, Any]]): Model-detected items.
+            placeholder_templates (Dict[str, str]): Category -> template mapping.
+
+        Returns:
+            Optional[str]: Redacted text, or None if data is incomplete.
+        """
+        placeholder_pattern = re.compile(r"^\[[A-Z0-9-]+-\d+\]$")
+        normalized_items: List[Dict[str, str]] = []
+        for item in detected_items:
+            data = item.get("data") or item.get("value") or item.get("text")
+            category = item.get("category") or item.get("label")
+            if not data or not category:
+                return None
+            if isinstance(data, str) and placeholder_pattern.match(data):
+                # Model returned a placeholder instead of the original text.
+                return None
+            template = placeholder_templates.get(category)
+            if not template:
+                return None
+            normalized_items.append({"data": str(data), "category": str(category), "template": template})
+
+        redacted_text = original_text
+        counters: Dict[str, int] = {}
+        for item in normalized_items:
+            category = item["category"]
+            counters[category] = counters.get(category, 0) + 1
+            placeholder = item["template"].replace("{index}", str(counters[category]))
+            # Replace first occurrence only to keep ordering stable
+            redacted_text = re.sub(re.escape(item["data"]), placeholder, redacted_text, count=1)
+
+        return redacted_text
+
+    def _extract_json_from_output(self, output: str) -> Optional[Dict[str, Any]]:
+        """Extract the first valid JSON object from a mixed-output string.
+
+        Args:
+            output (str): Model output that may include extra text.
+
+        Returns:
+            Optional[Dict[str, Any]]: Parsed JSON object if found.
+        """
+        if not output:
+            return None
+
+        # Strip fenced code blocks if present.
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", output, flags=re.DOTALL | re.IGNORECASE)
+        if fence_match:
+            try:
+                return json.loads(fence_match.group(1))
+            except Exception:
+                pass
+
+        # Scan for balanced JSON objects.
+        starts = []
+        candidates = []
+        for i, ch in enumerate(output):
+            if ch == "{":
+                starts.append(i)
+            elif ch == "}" and starts:
+                start = starts.pop()
+                if not starts:
+                    candidates.append(output[start:i + 1])
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                continue
+
+        return None
