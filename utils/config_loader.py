@@ -182,7 +182,9 @@ class ConfigLoader:
         """Get input text component configuration."""
         return self.config.get('ui', {}).get('components', {}).get('input_text', {
             'lines': 10,
-            'placeholder': 'Enter text to analyze for sensitive information...'
+            'placeholder': 'Enter text to analyze for sensitive information...',
+            'soft_limit': 2500,
+            'hard_limit': 5000
         })
 
     def get_output_text_config(self) -> Dict[str, Any]:
@@ -236,6 +238,15 @@ class ConfigLoader:
         """Get instruction prefix for OpenAI processing."""
         return self.config.get('openai_processing', {}).get('instruction_prefix',
                                                               'The following text has been redacted for sensitive information. Please process the text as it is provided as a PROMPT:\n')
+
+    # Prompt Configuration
+    def get_prompt_template_path(self) -> str:
+        """Get prompt template path."""
+        return self.config.get('prompts', {}).get('redaction_template', 'prompts/redaction_v1.txt')
+
+    def get_prompt_version(self) -> str:
+        """Get prompt template version."""
+        return self.config.get('prompts', {}).get('version', 'v1')
 
     def is_auto_submit_enabled(self) -> bool:
         """Check if automatic OpenAI submission is enabled."""

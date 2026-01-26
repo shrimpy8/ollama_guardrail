@@ -131,6 +131,22 @@ class TestRateLimiter:
         # Should not have waited
         assert elapsed < 0.1
 
+    @patch('time.sleep')
+    def test_wait_for_allowance_token_limit(self, mock_sleep):
+        """Test wait_for_allowance respects token limit."""
+        limiter = RateLimiter(max_requests_per_minute=10, max_tokens_per_minute=100)
+        limiter.token_count = 90
+        limiter.window_start = time.time() - 30
+
+        def _sleep_side_effect(_):
+            limiter.window_start = time.time() - 61
+
+        mock_sleep.side_effect = _sleep_side_effect
+
+        limiter.wait_for_allowance(tokens=20)
+
+        assert mock_sleep.called
+
     def test_limit_requests_decorator_successful(self):
         """Test limit_requests decorator on successful function."""
         limiter = RateLimiter(max_requests_per_minute=100)

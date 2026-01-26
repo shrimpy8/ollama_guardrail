@@ -60,6 +60,7 @@ def retry_api_call(
     max_attempts: int = 3,
     min_wait: int = 2,
     max_wait: int = 10,
+    multiplier: int = 2,
     **kwargs
 ) -> Any:
     """
@@ -77,6 +78,7 @@ def retry_api_call(
         max_attempts: Maximum number of retry attempts
         min_wait: Minimum wait time between retries (seconds)
         max_wait: Maximum wait time between retries (seconds)
+        multiplier: Exponential backoff multiplier
         **kwargs: Keyword arguments for the function
 
     Returns:
@@ -92,12 +94,14 @@ def retry_api_call(
         >>>     max_attempts=3
         >>> )
     """
-    logger.info(f"Executing API call with retry protection: {func.__name__}")
+    func_name = getattr(func, "__name__", func.__class__.__name__)
+    logger.info(f"Executing API call with retry protection: {func_name}")
 
     decorator = create_retry_decorator(
         max_attempts=max_attempts,
         min_wait=min_wait,
-        max_wait=max_wait
+        max_wait=max_wait,
+        multiplier=multiplier
     )
 
     @decorator
@@ -106,7 +110,7 @@ def retry_api_call(
 
     try:
         result = wrapped_func()
-        logger.info(f"API call successful: {func.__name__}")
+        logger.info(f"API call successful: {func_name}")
         return result
     except Exception as e:
         logger.error(f"API call failed after {max_attempts} attempts: {str(e)}")

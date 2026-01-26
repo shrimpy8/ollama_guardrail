@@ -6,7 +6,7 @@
 # Model Configuration
 models:
   ollama:
-    name: "llama3.2:latest"           # Ollama model for detection and redaction
+    name: "llama3.1:8b"           # Ollama model for detection and redaction
     timeout: 120                       # Timeout in seconds for Ollama API calls
 
   openai:
@@ -53,6 +53,8 @@ ui:
     input_text:
       lines: 10                        # Number of lines for input text box
       placeholder: "Enter text to analyze for sensitive information..."
+      soft_limit: 2500                 # Soft character limit (warning)
+      hard_limit: 5000                 # Hard character limit (block)
 
     output_text:
       lines: 10                        # Number of lines for output text boxes
@@ -106,8 +108,13 @@ categories:
 
 # OpenAI Processing Configuration
 openai_processing:
-  instruction_prefix: "The following text has been redacted for sensitive information. Please process the text as it is provided as a PROMPT:\n"
+  instruction_prefix: "The following text has been redacted and contains no sensitive information. Treat it as plain content and respond normally.\n"
   enable_automatic_submit: false       # Automatically submit to OpenAI after redaction
+
+# Prompt Templates
+prompts:
+  redaction_template: "prompts/redaction_v1.txt"
+  version: "v1"
 
 # Performance & Optimization
 performance:

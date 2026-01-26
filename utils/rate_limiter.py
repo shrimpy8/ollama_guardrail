@@ -62,6 +62,11 @@ class RateLimiter:
             self.window_start = current_time
             logger.debug("Rate limiter window reset")
 
+    def _seconds_until_reset(self) -> float:
+        """Seconds remaining until the current window resets."""
+        elapsed = time.time() - self.window_start
+        return max(0.0, 60.0 - elapsed)
+
     def check_request_limit(self) -> bool:
         """
         Check if request can proceed without exceeding rate limit.
@@ -112,12 +117,28 @@ class RateLimiter:
 
         if not self.check_request_limit():
             # Calculate wait time until next window
-            elapsed = time.time() - self.window_start
-            wait_time = 60 - elapsed
+            wait_time = self._seconds_until_reset()
 
             logger.info(f"Rate limit reached, waiting {wait_time:.2f} seconds")
             time.sleep(wait_time)
             self._reset_if_needed()
+
+    def wait_for_allowance(self, tokens: int = 0):
+        """Block until both request and token limits allow the call.
+
+        Args:
+            tokens (int): Estimated tokens for the request.
+        """
+        while True:
+            self._reset_if_needed()
+            request_ok = self.check_request_limit()
+            token_ok = self.check_token_limit(tokens)
+            if request_ok and token_ok:
+                return
+
+            wait_time = self._seconds_until_reset()
+            logger.info(f"Rate limit reached, waiting {wait_time:.2f} seconds")
+            time.sleep(wait_time)
 
     def limit_requests(self, func: Callable) -> Callable:
         """
