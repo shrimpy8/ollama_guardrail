@@ -322,7 +322,7 @@ def build_gradio_interface():
                 label="OpenAI API Key",
                 placeholder="API key is not set" if not openai_api_key else "Enter your OpenAI API key here...",
                 type="password",
-                value=openai_api_key
+                value=""
             )
             persist_key = gr.Checkbox(
                 label="Save key to .env",
