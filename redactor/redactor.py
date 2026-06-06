@@ -82,7 +82,7 @@ class SensitiveInformationRedactor:
 
         try:
             # Initialize Ollama model (request JSON format when supported)
-            ollama_kwargs = {"model": ollama_model_name}
+            ollama_kwargs = {"model": ollama_model_name, "timeout": config.get_ollama_timeout()}
             try:
                 if "format" in inspect.signature(OllamaLLM).parameters:
                     ollama_kwargs["format"] = "json"
