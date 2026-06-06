@@ -289,6 +289,11 @@ class SensitiveInformationRedactor:
             logger.warning("Empty text provided for OpenAI processing")
             return "No text provided for processing."
 
+        _openai_hard_limit = 10000
+        if len(redacted_text) > _openai_hard_limit:
+            logger.warning(f"Input text too long for OpenAI submission: {len(redacted_text)} chars (max {_openai_hard_limit})")
+            return f"Input text is too long for OpenAI processing. Please limit input to {_openai_hard_limit} characters."
+
         if not self.openai_model:
             logger.error("OpenAI model not available - missing API key")
             return "OpenAI processing is not available. Please add an API key in the OpenAI Config tab."
