@@ -13,9 +13,10 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
+    retry_if_not_exception_type,
     before_sleep_log
 )
+import openai
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,16 @@ def create_retry_decorator(
         >>> def my_api_call():
         >>>     return client.invoke(prompt)
     """
+    # Do not retry on non-transient 4xx errors — they will not succeed on retry
+    _non_retryable = (
+        openai.AuthenticationError,
+        openai.PermissionDeniedError,
+        openai.BadRequestError,
+    )
     return retry(
         stop=stop_after_attempt(max_attempts),
         wait=wait_exponential(multiplier=multiplier, min=min_wait, max=max_wait),
-        retry=retry_if_exception_type((
-            Exception,  # Retry on all exceptions for now
-        )),
+        retry=retry_if_not_exception_type(_non_retryable),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True
     )
