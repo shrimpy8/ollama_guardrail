@@ -82,7 +82,7 @@ class SensitiveInformationRedactor:
 
         try:
             # Initialize Ollama model (request JSON format when supported)
-            ollama_kwargs = {"model": ollama_model_name}
+            ollama_kwargs = {"model": ollama_model_name, "timeout": config.get_ollama_timeout()}
             try:
                 if "format" in inspect.signature(OllamaLLM).parameters:
                     ollama_kwargs["format"] = "json"
@@ -288,6 +288,11 @@ class SensitiveInformationRedactor:
         if not redacted_text:
             logger.warning("Empty text provided for OpenAI processing")
             return "No text provided for processing."
+
+        _openai_hard_limit = 10000
+        if len(redacted_text) > _openai_hard_limit:
+            logger.warning(f"Input text too long for OpenAI submission: {len(redacted_text)} chars (max {_openai_hard_limit})")
+            return f"Input text is too long for OpenAI processing. Please limit input to {_openai_hard_limit} characters."
 
         if not self.openai_model:
             logger.error("OpenAI model not available - missing API key")

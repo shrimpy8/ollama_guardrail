@@ -40,8 +40,11 @@ class TestRedactorInitialization:
             openai_api_key="test-key"
         )
 
-        # Verify custom models were used
-        mock_ollama.assert_called_once_with(model="llama2:latest")
+        # Verify custom models were used (timeout is now always set — SEC-003)
+        call_kwargs = mock_ollama.call_args[1] if mock_ollama.call_args[1] else dict(mock_ollama.call_args[0][0] if mock_ollama.call_args[0] else {})
+        assert mock_ollama.call_args is not None
+        assert "llama2:latest" in str(mock_ollama.call_args)
+        assert "timeout" in str(mock_ollama.call_args)
         assert "gpt-4" in str(mock_openai.call_args)
 
     @patch('redactor.redactor.OllamaLLM')
